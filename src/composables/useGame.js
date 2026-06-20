@@ -6,13 +6,17 @@ export function useGame() {
   const wood = ref(10)
   const food = ref(5)
   const hide = ref(0)
-  const tools = ref(0)
+  const tools = ref([])
   const isDay = ref(true)
   const dayCount = ref(1)
   const isBlizzard = ref(false)
   const gameOver = ref(false)
   const gameOverReason = ref('')
   const actionLog = ref([])
+
+  const TOOL_MAX_DURABILITY = 10
+  const REPAIR_WOOD_COST = 1
+  const REPAIR_HIDE_COST = 1
 
   const DAY_DURATION = 30000
   const NIGHT_DURATION = 20000
@@ -22,18 +26,61 @@ export function useGame() {
   let dayNightTimer = null
   let nightConsumptionTimer = null
   let autoSaveTimer = null
+  let toolIdCounter = 0
 
   const isNight = computed(() => !isDay.value)
   const isDanger = computed(() => temperature.value < 30)
   const canMakeFire = computed(() => wood.value >= 3)
-  const canHunt = computed(() => tools.value > 0)
-  const huntSuccessRate = computed(() => 0.3 + tools.value * 0.15)
+  const toolCount = computed(() => tools.value.length)
+  const canHunt = computed(() => toolCount.value > 0)
+  const canRepair = computed(() => {
+    if (wood.value < REPAIR_WOOD_COST || hide.value < REPAIR_HIDE_COST) return false
+    return tools.value.some(t => t.durability < t.maxDurability)
+  })
+
+  const averageToolEfficiency = computed(() => {
+    if (toolCount.value === 0) return 0
+    const total = tools.value.reduce((sum, t) => sum + (t.durability / t.maxDurability), 0)
+    return total / toolCount.value
+  })
+
+  const huntSuccessRate = computed(() => {
+    const baseRate = 0.3
+    const toolBonus = toolCount.value * 0.15 * averageToolEfficiency.value
+    return Math.min(0.95, baseRate + toolBonus)
+  })
 
   function addLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString()
     actionLog.value.unshift({ message, type, timestamp })
     if (actionLog.value.length > 20) {
       actionLog.value.pop()
+    }
+  }
+
+  function createTool() {
+    toolIdCounter++
+    return {
+      id: toolIdCounter,
+      durability: TOOL_MAX_DURABILITY,
+      maxDurability: TOOL_MAX_DURABILITY
+    }
+  }
+
+  function migrateToolsFromNumber(rawTools) {
+    if (typeof rawTools === 'number') {
+      const migrated = []
+      for (let i = 0; i < rawTools; i++) {
+        migrated.push(createTool())
+      }
+      tools.value = migrated
+      if (rawTools > 0) {
+        addLog(`存档迁移：将 ${rawTools} 个旧工具转换为带耐久的新工具`, 'info')
+      }
+    } else if (Array.isArray(rawTools)) {
+      tools.value = rawTools
+      const maxId = rawTools.reduce((max, t) => Math.max(max, t.id || 0), 0)
+      toolIdCounter = maxId
     }
   }
 
@@ -123,6 +170,25 @@ export function useGame() {
     checkGameOver()
   }
 
+  function consumeToolDurability() {
+    if (toolCount.value === 0) return null
+
+    const tool = tools.value[0]
+    const oldDurability = tool.durability
+    tool.durability = Math.max(0, tool.durability - 1)
+
+    if (tool.durability <= 0) {
+      tools.value.shift()
+      addLog(`🔧 工具在使用中彻底损坏了！（剩余工具：${toolCount.value}）`, 'warning')
+    } else if (tool.durability === 1 && oldDurability > 1) {
+      addLog(`⚠️ 工具严重磨损！耐久仅剩 1/${tool.maxDurability}，下次使用可能损坏`, 'warning')
+    } else if (tool.durability <= Math.floor(tool.maxDurability * 0.3) && oldDurability > Math.floor(tool.maxDurability * 0.3)) {
+      addLog(`工具耐久较低：${tool.durability}/${tool.maxDurability}，建议尽快维修`, 'warning')
+    }
+
+    return tool
+  }
+
   function hunt() {
     if (gameOver.value || isNight.value) return
     
@@ -130,16 +196,33 @@ export function useGame() {
     const tempCost = 8 * multiplier
     
     temperature.value = Math.max(0, temperature.value - tempCost)
+
+    if (toolCount.value === 0) {
+      addLog(`狩猎失败：没有可用工具，消耗 ${tempCost} 体温，空手而归`, 'warning')
+      return
+    }
+
+    const usedTool = tools.value[0]
+    const prevEfficiency = (usedTool.durability / usedTool.maxDurability).toFixed(2)
     
     if (Math.random() < huntSuccessRate.value) {
       const foodGained = Math.floor(Math.random() * 3) + 2
       const hideGained = Math.floor(Math.random() * 2) + 1
       food.value += foodGained
       hide.value += hideGained
-      addLog(`狩猎成功：获得 ${foodGained} 食物，${hideGained} 兽皮，消耗 ${tempCost} 体温`, 'success')
+      
+      const toolMsg = usedTool.durability <= 2 
+        ? `（工具耐久 ${usedTool.durability}/${usedTool.maxDurability}，效率 ${prevEfficiency}）` 
+        : ''
+      addLog(`狩猎成功：获得 ${foodGained} 食物，${hideGained} 兽皮，消耗 ${tempCost} 体温${toolMsg}`, 'success')
     } else {
-      addLog(`狩猎失败：消耗 ${tempCost} 体温，空手而归`, 'warning')
+      const toolMsg = usedTool.durability <= 2 
+        ? `（工具耐久 ${usedTool.durability}/${usedTool.maxDurability}，效率 ${prevEfficiency}）` 
+        : ''
+      addLog(`狩猎失败：消耗 ${tempCost} 体温，空手而归${toolMsg}`, 'warning')
     }
+
+    consumeToolDurability()
     
     if (Math.random() < BLIZZARD_CHANCE * 0.5) {
       triggerBlizzard()
@@ -160,10 +243,38 @@ export function useGame() {
     
     wood.value -= 2
     hide.value -= 1
-    tools.value += 1
+    const newTool = createTool()
+    tools.value.push(newTool)
     temperature.value = Math.max(0, temperature.value - tempCost)
     
-    addLog(`制作工具：获得 1 工具，消耗 ${tempCost} 体温`, 'success')
+    addLog(`制作工具：获得 1 新工具（耐久 ${newTool.durability}/${newTool.maxDurability}），消耗 ${tempCost} 体温`, 'success')
+    checkGameOver()
+  }
+
+  function repairTool() {
+    if (gameOver.value || isNight.value) return
+    if (!canRepair.value) {
+      if (wood.value < REPAIR_WOOD_COST || hide.value < REPAIR_HIDE_COST) {
+        addLog(`材料不足：维修需要 ${REPAIR_WOOD_COST} 木头和 ${REPAIR_HIDE_COST} 兽皮`, 'warning')
+      } else {
+        addLog('所有工具均已满耐久，无需维修', 'info')
+      }
+      return
+    }
+
+    const sortedTools = [...tools.value].sort((a, b) => a.durability - b.durability)
+    const toolToRepair = sortedTools[0]
+    const originalDurability = toolToRepair.durability
+
+    wood.value -= REPAIR_WOOD_COST
+    hide.value -= REPAIR_HIDE_COST
+    toolToRepair.durability = toolToRepair.maxDurability
+
+    const multiplier = isBlizzard.value ? 2 : 1
+    const tempCost = 4 * multiplier
+    temperature.value = Math.max(0, temperature.value - tempCost)
+
+    addLog(`维修工具：耐久从 ${originalDurability} 恢复到 ${toolToRepair.maxDurability}，消耗 ${REPAIR_WOOD_COST} 木头、${REPAIR_HIDE_COST} 兽皮、${tempCost} 体温`, 'success')
     checkGameOver()
   }
 
@@ -227,6 +338,7 @@ export function useGame() {
       food: food.value,
       hide: hide.value,
       tools: tools.value,
+      toolIdCounter: toolIdCounter,
       isDay: isDay.value,
       dayCount: dayCount.value,
       isBlizzard: isBlizzard.value,
@@ -250,7 +362,10 @@ export function useGame() {
       wood.value = gameState.wood
       food.value = gameState.food
       hide.value = gameState.hide
-      tools.value = gameState.tools
+      migrateToolsFromNumber(gameState.tools)
+      if (gameState.toolIdCounter) {
+        toolIdCounter = gameState.toolIdCounter
+      }
       isDay.value = gameState.isDay
       dayCount.value = gameState.dayCount
       isBlizzard.value = gameState.isBlizzard
@@ -303,7 +418,8 @@ export function useGame() {
     wood.value = 10
     food.value = 5
     hide.value = 0
-    tools.value = 0
+    tools.value = []
+    toolIdCounter = 0
     isDay.value = true
     dayCount.value = 1
     isBlizzard.value = false
@@ -319,7 +435,7 @@ export function useGame() {
 
   onMounted(() => {
     startTimers()
-    addLog('欢迎来到雪地生存！白天收集资源，夜晚保持温暖。', 'info')
+    addLog('欢迎来到雪地生存！白天收集资源，夜晚保持温暖。工具具有耐久度，记得及时维修！', 'info')
   })
 
   onUnmounted(() => {
@@ -333,6 +449,7 @@ export function useGame() {
     food,
     hide,
     tools,
+    toolCount,
     isDay,
     isNight,
     dayCount,
@@ -343,10 +460,13 @@ export function useGame() {
     isDanger,
     canMakeFire,
     canHunt,
+    canRepair,
     huntSuccessRate,
+    averageToolEfficiency,
     chopWood,
     hunt,
     makeTools,
+    repairTool,
     makeFire,
     eatFood,
     saveGame,

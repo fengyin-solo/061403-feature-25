@@ -63,11 +63,15 @@
             :gameOver="gameOver"
             :canFire="canMakeFire"
             :canCraft="wood >= 2 && hide >= 1"
+            :canRepair="canRepair"
             :huntRate="huntSuccessRate"
+            :toolEfficiency="averageToolEfficiency"
+            :toolCount="toolCount"
             :food="food"
             @chop="handleChop"
             @hunt="handleHunt"
             @craft="handleCraft"
+            @repair="handleRepair"
             @fire="handleFire"
             @eat="handleEat"
           />
@@ -85,7 +89,7 @@
       :dayCount="dayCount"
       :temperature="temperature"
       :wood="wood"
-      :tools="tools"
+      :tools="toolCount"
       @restart="handleRestart"
       @load="showSaveManager"
     />
@@ -112,6 +116,7 @@ const {
   food,
   hide,
   tools,
+  toolCount,
   isDay,
   isNight,
   dayCount,
@@ -121,10 +126,13 @@ const {
   actionLog,
   isDanger,
   canMakeFire,
+  canRepair,
   huntSuccessRate,
+  averageToolEfficiency,
   chopWood,
   hunt,
   makeTools,
+  repairTool,
   makeFire,
   eatFood,
   saveGame,
@@ -181,6 +189,16 @@ function handleCraft() {
   if (wood.value >= 2 && hide.value >= 1) {
     playCraft()
     makeTools()
+    playSuccess()
+  } else {
+    playWarning()
+  }
+}
+
+function handleRepair() {
+  if (canRepair.value) {
+    playCraft()
+    repairTool()
     playSuccess()
   } else {
     playWarning()

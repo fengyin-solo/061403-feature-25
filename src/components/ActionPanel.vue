@@ -16,13 +16,16 @@
       </button>
       <button 
         class="action-btn" 
-        :class="{ disabled: isNight || gameOver }"
+        :class="{ disabled: isNight || gameOver || toolCount <= 0 }"
         @click="$emit('hunt')"
       >
         <span class="btn-icon">🏹</span>
         <span class="btn-text">狩猎</span>
         <span class="btn-cost">-8 体温</span>
         <span class="btn-hint">成功率: {{ Math.round(huntRate * 100) }}%</span>
+        <span v-if="toolCount > 0 && toolEfficiency < 1" class="btn-hint efficiency-hint">
+          效率: {{ Math.round(toolEfficiency * 100) }}%
+        </span>
       </button>
       <button 
         class="action-btn" 
@@ -33,6 +36,16 @@
         <span class="btn-text">制作工具</span>
         <span class="btn-cost">-6 体温</span>
         <span class="btn-hint">需要: 2🪵 + 1🦊</span>
+      </button>
+      <button 
+        class="action-btn repair-btn" 
+        :class="{ disabled: isNight || gameOver || !canRepair }"
+        @click="$emit('repair')"
+      >
+        <span class="btn-icon">🔧</span>
+        <span class="btn-text">维修工具</span>
+        <span class="btn-cost">-4 体温</span>
+        <span class="btn-hint">需要: 1🪵 + 1🦊</span>
       </button>
       <button 
         class="action-btn fire-btn" 
@@ -64,11 +77,14 @@ defineProps({
   gameOver: { type: Boolean, default: false },
   canFire: { type: Boolean, default: false },
   canCraft: { type: Boolean, default: false },
+  canRepair: { type: Boolean, default: false },
   huntRate: { type: Number, default: 0.3 },
+  toolEfficiency: { type: Number, default: 1 },
+  toolCount: { type: Number, default: 0 },
   food: { type: Number, default: 0 }
 })
 
-defineEmits(['chop', 'hunt', 'craft', 'fire', 'eat'])
+defineEmits(['chop', 'hunt', 'craft', 'repair', 'fire', 'eat'])
 </script>
 
 <style scoped>
@@ -154,6 +170,15 @@ defineEmits(['chop', 'hunt', 'craft', 'fire', 'eat'])
   box-shadow: 0 5px 20px rgba(50, 200, 100, 0.4);
 }
 
+.repair-btn:not(.disabled) {
+  border-color: rgba(155, 89, 182, 0.6);
+  background: linear-gradient(135deg, rgba(155, 89, 182, 0.3), rgba(142, 68, 173, 0.1));
+}
+
+.repair-btn:hover:not(.disabled) {
+  box-shadow: 0 5px 20px rgba(155, 89, 182, 0.4);
+}
+
 .btn-icon {
   font-size: 28px;
 }
@@ -171,5 +196,9 @@ defineEmits(['chop', 'hunt', 'craft', 'fire', 'eat'])
 .btn-hint {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.6);
+}
+
+.efficiency-hint {
+  color: rgba(255, 200, 100, 0.8);
 }
 </style>
