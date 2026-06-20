@@ -16,15 +16,18 @@
       </button>
       <button 
         class="action-btn" 
-        :class="{ disabled: isNight || gameOver || toolCount <= 0 }"
+        :class="{ disabled: isNight || gameOver }"
         @click="$emit('hunt')"
       >
         <span class="btn-icon">🏹</span>
-        <span class="btn-text">狩猎</span>
+        <span class="btn-text">{{ toolCount > 0 ? '狩猎' : '徒手捕猎' }}</span>
         <span class="btn-cost">-8 体温</span>
         <span class="btn-hint">成功率: {{ Math.round(huntRate * 100) }}%</span>
         <span v-if="toolCount > 0 && toolEfficiency < 1" class="btn-hint efficiency-hint">
           效率: {{ Math.round(toolEfficiency * 100) }}%
+        </span>
+        <span v-if="toolCount === 0" class="btn-hint bare-hands-hint">
+          ⚠️ 无工具，成功率极低
         </span>
       </button>
       <button 
@@ -200,5 +203,9 @@ defineEmits(['chop', 'hunt', 'craft', 'repair', 'fire', 'eat'])
 
 .efficiency-hint {
   color: rgba(255, 200, 100, 0.8);
+}
+
+.bare-hands-hint {
+  color: rgba(255, 150, 150, 0.8);
 }
 </style>

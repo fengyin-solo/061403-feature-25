@@ -5,7 +5,7 @@ export function useGame() {
   const heat = ref(50)
   const wood = ref(10)
   const food = ref(5)
-  const hide = ref(0)
+  const hide = ref(1)
   const tools = ref([])
   const isDay = ref(true)
   const dayCount = ref(1)
@@ -32,7 +32,7 @@ export function useGame() {
   const isDanger = computed(() => temperature.value < 30)
   const canMakeFire = computed(() => wood.value >= 3)
   const toolCount = computed(() => tools.value.length)
-  const canHunt = computed(() => toolCount.value > 0)
+  const canHunt = computed(() => true)
   const canRepair = computed(() => {
     if (wood.value < REPAIR_WOOD_COST || hide.value < REPAIR_HIDE_COST) return false
     return tools.value.some(t => t.durability < t.maxDurability)
@@ -45,7 +45,7 @@ export function useGame() {
   })
 
   const huntSuccessRate = computed(() => {
-    const baseRate = 0.3
+    const baseRate = toolCount.value === 0 ? 0.1 : 0.3
     const toolBonus = toolCount.value * 0.15 * averageToolEfficiency.value
     return Math.min(0.95, baseRate + toolBonus)
   })
@@ -197,32 +197,53 @@ export function useGame() {
     
     temperature.value = Math.max(0, temperature.value - tempCost)
 
-    if (toolCount.value === 0) {
-      addLog(`狩猎失败：没有可用工具，消耗 ${tempCost} 体温，空手而归`, 'warning')
-      return
-    }
+    const hasTools = toolCount.value > 0
+    const currentRate = huntSuccessRate.value
+    const willSuccess = Math.random() < currentRate
 
-    const usedTool = tools.value[0]
-    const prevEfficiency = (usedTool.durability / usedTool.maxDurability).toFixed(2)
-    
-    if (Math.random() < huntSuccessRate.value) {
-      const foodGained = Math.floor(Math.random() * 3) + 2
-      const hideGained = Math.floor(Math.random() * 2) + 1
-      food.value += foodGained
-      hide.value += hideGained
-      
-      const toolMsg = usedTool.durability <= 2 
-        ? `（工具耐久 ${usedTool.durability}/${usedTool.maxDurability}，效率 ${prevEfficiency}）` 
-        : ''
-      addLog(`狩猎成功：获得 ${foodGained} 食物，${hideGained} 兽皮，消耗 ${tempCost} 体温${toolMsg}`, 'success')
+    if (!hasTools) {
+      if (willSuccess) {
+        const hideGained = Math.floor(Math.random() * 2) + 1
+        hide.value += hideGained
+        addLog(`徒手捕猎成功：获得 ${hideGained} 兽皮，消耗 ${tempCost} 体温（成功率 ${Math.round(currentRate * 100)}%）`, 'success')
+        addLog('提示：制作工具可以大幅提高狩猎成功率！', 'info')
+      } else {
+        addLog(`徒手捕猎失败：消耗 ${tempCost} 体温，空手而归（成功率 ${Math.round(currentRate * 100)}%）`, 'warning')
+      }
     } else {
-      const toolMsg = usedTool.durability <= 2 
-        ? `（工具耐久 ${usedTool.durability}/${usedTool.maxDurability}，效率 ${prevEfficiency}）` 
-        : ''
-      addLog(`狩猎失败：消耗 ${tempCost} 体温，空手而归${toolMsg}`, 'warning')
-    }
+      const usedTool = tools.value[0]
+      const oldDurability = usedTool.durability
+      const prevEfficiency = (oldDurability / usedTool.maxDurability).toFixed(2)
+      const rateMsg = `（成功率 ${Math.round(currentRate * 100)}%，工具效率 ${prevEfficiency}）`
 
-    consumeToolDurability()
+      if (willSuccess) {
+        const foodGained = Math.floor(Math.random() * 3) + 2
+        const hideGained = Math.floor(Math.random() * 2) + 1
+        food.value += foodGained
+        hide.value += hideGained
+        
+        const toolMsg = oldDurability <= 2 
+          ? `（工具耐久 ${oldDurability}/${usedTool.maxDurability}）` 
+          : ''
+        addLog(`狩猎成功：获得 ${foodGained} 食物，${hideGained} 兽皮，消耗 ${tempCost} 体温${toolMsg}${rateMsg}`, 'success')
+      } else {
+        const toolMsg = oldDurability <= 2 
+          ? `（工具耐久 ${oldDurability}/${usedTool.maxDurability}）` 
+          : ''
+        addLog(`狩猎失败：消耗 ${tempCost} 体温，空手而归${toolMsg}${rateMsg}`, 'warning')
+      }
+
+      const prevToolCount = toolCount.value
+      const wasFullDurability = oldDurability === usedTool.maxDurability
+      consumeToolDurability()
+      
+      if (prevToolCount > 0 && toolCount.value === 0) {
+        addLog('⚠️ 所有工具已损坏！现在只能徒手捕猎（成功率 10%），建议制作新工具', 'danger')
+      } else if (wasFullDurability && toolCount.value > 0) {
+        const newEfficiency = (averageToolEfficiency.value * 100).toFixed(0)
+        addLog(`新工具首次使用：耐久 10→${oldDurability - 1}，平均效率 ${newEfficiency}%`, 'action')
+      }
+    }
     
     if (Math.random() < BLIZZARD_CHANCE * 0.5) {
       triggerBlizzard()
@@ -417,7 +438,7 @@ export function useGame() {
     heat.value = 50
     wood.value = 10
     food.value = 5
-    hide.value = 0
+    hide.value = 1
     tools.value = []
     toolIdCounter = 0
     isDay.value = true
@@ -431,11 +452,13 @@ export function useGame() {
     startTimers()
     
     addLog('新游戏开始！祝你好运！', 'success')
+    addLog('玩法提示：先用初始兽皮制作工具 → 狩猎消耗耐久 → 工具损坏前记得维修 → 循环获取资源', 'info')
   }
 
   onMounted(() => {
     startTimers()
-    addLog('欢迎来到雪地生存！白天收集资源，夜晚保持温暖。工具具有耐久度，记得及时维修！', 'info')
+    addLog('欢迎来到雪地生存！白天收集资源，夜晚保持温暖。', 'info')
+    addLog('新手指南：初始有 1 个兽皮，先制作工具（2木头+1兽皮），再狩猎提高效率。工具有耐久度，记得及时维修！', 'info')
   })
 
   onUnmounted(() => {
